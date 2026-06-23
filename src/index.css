@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-slate-100 text-slate-900 antialiased;
+    font-family: theme('fontFamily.sans');
+  }
+  html.dark body {
+    @apply bg-slate-950 text-slate-100;
+  }
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer components {
+  /* Foosball pitch background with mowing stripes */
+  .pitch-bg {
+    background-color: #1f8a45;
+    background-image: repeating-linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.06) 0,
+      rgba(255, 255, 255, 0.06) 64px,
+      rgba(0, 0, 0, 0.06) 64px,
+      rgba(0, 0, 0, 0.06) 128px
+    );
+  }
+
+  .scrollbar-thin {
+    scrollbar-width: thin;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    height: 8px;
+    width: 8px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-slate-400/50;
+  }
+}

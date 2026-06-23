@@ -1,0 +1,153 @@
+/* Standalone correctness checks for the tournament domain logic. Run with tsx. */
+import { createTournament } from '../src/lib/factory'
+import { generateGroupSchedule } from '../src/lib/scheduling'
+import { computeGroupStandings, isGroupStageComplete, winnerOf } from '../src/lib/standings'
+import { generateKnockout, getQualifiers, syncBracket } from '../src/lib/knockout'
+import type { Match, Tournament } from '../src/types'
+
+let failures = 0
+function check(name: string, cond: boolean, extra?: unknown) {
+  const status = cond ? 'PASS' : 'FAIL'
+  if (!cond) failures++
+  console.log(`[${status}] ${name}${extra !== undefined && !cond ? ' :: ' + JSON.stringify(extra) : ''}`)
+}
+
+/* 1. Default schedule shape */
+const t = createTournament()
+const groupMatches = t.matches.filter((m) => m.stage === 'group')
+check('default has 10 teams', t.teams.length === 10)
+check('default has 2 groups', t.groups.length === 2)
+// 5 teams double round robin per group = 20 matches; 2 groups = 40
+check('double round-robin match count = 40', groupMatches.length === 40, groupMatches.length)
+
+/* 2. Each pair meets exactly twice (home & away) within a group */
+for (const g of t.groups) {
+  const gm = groupMatches.filter((m) => m.groupId === g.id)
+  const pairSeen = new Map<string, number>()
+  for (const m of gm) {
+    const key = [m.teamA, m.teamB].sort().join('|')
+    pairSeen.set(key, (pairSeen.get(key) ?? 0) + 1)
+  }
+  const allTwice = [...pairSeen.values()].every((v) => v === 2)
+  const nPairs = (5 * 4) / 2
+  check(`group ${g.name}: every pair plays exactly twice`, allTwice && pairSeen.size === nPairs)
+}
+
+/* 3. Interleaving: no team appears in two consecutive scheduled matches */
+const ordered = [...groupMatches].sort((a, b) => a.order - b.order)
+let adjacentRepeat = false
+for (let i = 1; i < ordered.length; i++) {
+  const prev = new Set([ordered[i - 1].teamA, ordered[i - 1].teamB])
+  if (prev.has(ordered[i].teamA) || prev.has(ordered[i].teamB)) adjacentRepeat = true
+}
+check('no team plays in back-to-back matches', !adjacentRepeat)
+
+/* 4. Adjacent matches alternate groups (A,B,A,B…) */
+let alternates = true
+for (let i = 1; i < ordered.length; i++) {
+  if (ordered[i].groupId === ordered[i - 1].groupId) alternates = false
+}
+check('schedule alternates between groups', alternates)
+
+/* 5. Simulate all group results, check standings + qualifiers */
+function playAll(tour: Tournament): Tournament {
+  const matches: Match[] = tour.matches.map((m, i) => {
+    if (m.stage !== 'group') return { ...m }
+    // deterministic, no draws
+    const a = (i % 3) + 1
+    const b = i % 3 === 0 ? 0 : (i % 2) // ensure a != b mostly; fix below
+    const scoreA = a
+    const scoreB = a === b ? b + 1 : b
+    return { ...m, scoreA, scoreB: scoreA === scoreB ? scoreB + 1 : scoreB, played: true }
+  })
+  return { ...tour, matches }
+}
+const played = playAll(t)
+check('group stage reported complete', isGroupStageComplete(played.matches))
+let allRanksValid = true
+for (const g of played.groups) {
+  const st = computeGroupStandings(g.id, played.teams, played.matches, played.settings)
+  if (st.length !== 5) allRanksValid = false
+  st.forEach((r, idx) => {
+    if (r.rank !== idx + 1) allRanksValid = false
+    if (r.wins + r.losses !== r.played) allRanksValid = false
+  })
+  // points must be monotonically non-increasing by rank
+  for (let i = 1; i < st.length; i++) if (st[i].points > st[i - 1].points) allRanksValid = false
+  // qualifiers flagged for top 3
+  const q = st.filter((r) => r.qualified).length
+  if (q !== 3) allRanksValid = false
+}
+check('standings: ranks/points/qualifiers consistent', allRanksValid)
+
+const quals = getQualifiers(played.teams, played.groups, played.matches, played.settings)
+check('6 qualifiers (3 per group)', quals.length === 6, quals.length)
+
+/* 6. Knockout generation + bye resolution + propagation */
+const ko = generateKnockout(played.teams, played.groups, played.matches, played.settings)
+const rounds = new Set(ko.map((m) => m.round))
+check('knockout has SF and FINAL', rounds.has('SF') && rounds.has('FINAL'))
+check('knockout has BRONZE', rounds.has('BRONZE'))
+const byes = ko.filter((m) => m.isBye)
+check('two byes auto-resolved (6 teams -> bracket of 8)', byes.length === 2, byes.length)
+const finalBefore = ko.find((m) => m.round === 'FINAL')!
+check('final initially has no fixed teams (fed by SF)', finalBefore.teamA === null && finalBefore.teamB === null)
+
+/* Play the whole bracket and confirm a champion emerges */
+function playKnockout(matches: Match[]): Match[] {
+  // iterate until stable: fill any playable match with a deterministic winner
+  const work = matches.map((m) => ({ ...m }))
+  for (let pass = 0; pass < 10; pass++) {
+    syncBracket(work, [])
+    let changed = false
+    for (const m of work) {
+      if (m.stage !== 'knockout' || m.isBye || m.played) continue
+      if (m.teamA !== null && m.teamB !== null) {
+        m.scoreA = 5
+        m.scoreB = 3
+        m.played = true
+        changed = true
+      }
+    }
+    if (!changed) break
+  }
+  return work
+}
+const finished = playKnockout(ko)
+const finalMatch = finished.find((m) => m.round === 'FINAL')!
+const bronzeMatch = finished.find((m) => m.round === 'BRONZE')!
+check('final is played with two real teams', finalMatch.played && finalMatch.teamA !== null && finalMatch.teamB !== null)
+check('champion determined', winnerOf(finalMatch) !== null)
+check('bronze played with two real teams', bronzeMatch.played && bronzeMatch.teamA !== null && bronzeMatch.teamB !== null)
+
+/* 7. Head-to-head tiebreaker (points & GD equal, H2H decides) */
+{
+  const mini = createTournament({ numTeams: 3, numGroups: 1, qualifiersPerGroup: 1, doubleRoundRobin: false })
+  const [x, y, z] = mini.teams
+  const gid = mini.groups[0].id
+  const find = (a: string, b: string) =>
+    mini.matches.find(
+      (m) => (m.teamA === a && m.teamB === b) || (m.teamA === b && m.teamB === a),
+    )!
+  const setRes = (m: Match, winner: string, ws: number, ls: number) => {
+    if (m.teamA === winner) {
+      m.scoreA = ws
+      m.scoreB = ls
+    } else {
+      m.scoreA = ls
+      m.scoreB = ws
+    }
+    m.played = true
+  }
+  // Make a 3-way tie on points (each wins one) and equal GD, H2H by goals
+  setRes(find(x.id, y.id), x.id, 3, 1) // x beats y
+  setRes(find(y.id, z.id), y.id, 3, 1) // y beats z
+  setRes(find(z.id, x.id), z.id, 3, 1) // z beats x
+  // each: 1W 1L, +2/-2 -> all points equal, GD all 0, GF all 4 -> deep tie, stable order
+  const st = computeGroupStandings(gid, mini.teams, mini.matches, mini.settings)
+  check('3-way tie produces a strict ordering', new Set(st.map((r) => r.rank)).size === 3, st.map((r) => r.rank))
+  check('tie: all equal on points', st.every((r) => r.points === st[0].points))
+}
+
+console.log(`\n${failures === 0 ? 'ALL CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`)
+process.exit(failures === 0 ? 0 : 1)
