@@ -53,6 +53,101 @@ function seedSlots(size: number): number[] {
   return seeds
 }
 
+/** Round (1 = first round) in which bracket positions p and q can first meet. */
+function meetingRound(p: number, q: number): number {
+  let r = 0
+  while (p !== q) {
+    p >>= 1
+    q >>= 1
+    r++
+  }
+  return r
+}
+
+/**
+ * Cost of a placement: how many same-group pairs can meet in round 1, round 2, …
+ * Compared lexicographically, so an earlier clash always outweighs later ones.
+ */
+function clashCost(placed: Map<number, Qualifier>, numRounds: number): number[] {
+  const cost = new Array<number>(numRounds).fill(0)
+  const entries = [...placed]
+  for (let i = 0; i < entries.length; i++) {
+    for (let j = i + 1; j < entries.length; j++) {
+      if (entries[i][1].groupId === entries[j][1].groupId) {
+        cost[meetingRound(entries[i][0], entries[j][0]) - 1]++
+      }
+    }
+  }
+  return cost
+}
+
+function lessThan(a: number[], b: number[]): boolean {
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return a[i] < b[i]
+  return false
+}
+
+function permutations<T>(items: T[]): T[][] {
+  if (items.length <= 1) return [items]
+  return items.flatMap((x, i) =>
+    permutations([...items.slice(0, i), ...items.slice(i + 1)]).map((p) => [x, ...p]),
+  )
+}
+
+/**
+ * Assign qualifiers to bracket positions. Seeds keep the bracket shape (byes and
+ * strong-vs-weak pairings), but within each tier (all group winners, all
+ * runners-up, …) teams are shuffled between that tier's positions so that teams
+ * from the same group meet as late as possible — never in the first round when
+ * avoidable.
+ */
+function placeQualifiers(qualifiers: Qualifier[], slots: number[]): Map<number, Qualifier> {
+  const numRounds = Math.log2(slots.length)
+  const positionOfSeed = new Map(slots.map((seed, pos) => [seed, pos]))
+  const placed = new Map<number, Qualifier>()
+
+  let start = 0
+  while (start < qualifiers.length) {
+    let end = start
+    while (end < qualifiers.length && qualifiers[end].pos === qualifiers[start].pos) end++
+    const tier = qualifiers.slice(start, end)
+    const positions = tier.map((_, i) => positionOfSeed.get(start + i + 1)!)
+
+    const evaluate = (order: Qualifier[]) => {
+      const trial = new Map(placed)
+      order.forEach((q, i) => trial.set(positions[i], q))
+      return { trial, cost: clashCost(trial, numRounds) }
+    }
+
+    if (tier.length <= 7) {
+      // Exhaustive; the identity order comes first, so ties keep the natural seeding.
+      let best = evaluate(tier)
+      for (const order of permutations(tier)) {
+        const cand = evaluate(order)
+        if (lessThan(cand.cost, best.cost)) best = cand
+      }
+      best.trial.forEach((q, pos) => placed.set(pos, q))
+    } else {
+      // Large tiers: greedily give each team the free position with the lowest clash cost.
+      const free = [...positions]
+      for (const q of tier) {
+        let bestIdx = 0
+        let bestCost: number[] | null = null
+        free.forEach((pos, idx) => {
+          const trial = new Map(placed).set(pos, q)
+          const cost = clashCost(trial, numRounds)
+          if (!bestCost || lessThan(cost, bestCost)) {
+            bestCost = cost
+            bestIdx = idx
+          }
+        })
+        placed.set(free.splice(bestIdx, 1)[0], q)
+      }
+    }
+    start = end
+  }
+  return placed
+}
+
 export interface Qualifier {
   teamId: ID
   label: string // e.g. "A1"
@@ -118,16 +213,15 @@ export function generateKnockout(
   const slots = seedSlots(S)
   const numRounds = Math.log2(S)
 
-  const seedToQ = (seed: number): Qualifier | undefined =>
-    seed <= Q ? qualifiers[seed - 1] : undefined
+  const placed = placeQualifiers(qualifiers, slots)
 
   const rounds: Match[][] = []
 
   // First round
   const first: Match[] = []
   for (let k = 0; k < S / 2; k++) {
-    const qa = seedToQ(slots[2 * k])
-    const qb = seedToQ(slots[2 * k + 1])
+    const qa = placed.get(2 * k)
+    const qb = placed.get(2 * k + 1)
     first.push({
       id: uid('k'),
       stage: 'knockout',

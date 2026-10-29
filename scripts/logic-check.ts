@@ -120,6 +120,40 @@ check('final is played with two real teams', finalMatch.played && finalMatch.tea
 check('champion determined', winnerOf(finalMatch) !== null)
 check('bronze played with two real teams', bronzeMatch.played && bronzeMatch.teamA !== null && bronzeMatch.teamB !== null)
 
+/* 6b. Cross-group draw: no first-round match between teams of the same group */
+{
+  const groupOf = new Map(played.teams.map((tm) => [tm.id, tm.groupId]))
+  const firstRound = ko.filter((m) => !m.sourceA && !m.sourceB && !m.isBye)
+  check(
+    '2x3 draw: no same-group first-round match',
+    firstRound.every((m) => groupOf.get(m.teamA!) !== groupOf.get(m.teamB!)),
+    firstRound.map((m) => `${m.labelA}-${m.labelB}`),
+  )
+  // A1/B1 sit in opposite halves, so group winners can only meet in the final
+  const semis = finished.filter((m) => m.round === 'SF')
+  const winners = quals.filter((q) => q.pos === 1).map((q) => q.teamId)
+  check(
+    '2x3 draw: group winners are in opposite semi-finals',
+    semis.every((m) => !(winners.includes(m.teamA!) && winners.includes(m.teamB!))),
+  )
+
+  for (const [numTeams, numGroups, qualifiersPerGroup] of [
+    [8, 2, 2], [8, 2, 4], [12, 3, 2], [12, 3, 3], [16, 4, 2], [16, 4, 3], [20, 4, 4],
+  ]) {
+    const tour = playAll(createTournament({ numTeams, numGroups, qualifiersPerGroup, doubleRoundRobin: false }))
+    const gOf = new Map(tour.teams.map((tm) => [tm.id, tm.groupId]))
+    const kos = generateKnockout(tour.teams, tour.groups, tour.matches, tour.settings)
+    const clashes = kos.filter(
+      (m) => !m.sourceA && !m.sourceB && !m.isBye && gOf.get(m.teamA!) === gOf.get(m.teamB!),
+    )
+    check(
+      `${numGroups}x${qualifiersPerGroup} draw: no same-group first-round match`,
+      clashes.length === 0,
+      clashes.map((m) => `${m.labelA}-${m.labelB}`),
+    )
+  }
+}
+
 /* 7. Head-to-head tiebreaker (points & GD equal, H2H decides) */
 {
   const mini = createTournament({ numTeams: 3, numGroups: 1, qualifiersPerGroup: 1, doubleRoundRobin: false })
