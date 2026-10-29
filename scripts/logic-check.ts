@@ -3,7 +3,15 @@ import { createTournament } from '../src/lib/factory'
 import { generateGroupSchedule } from '../src/lib/scheduling'
 import { computeGroupStandings, isGroupStageComplete, winnerOf } from '../src/lib/standings'
 import { generateKnockout, getQualifiers, syncBracket } from '../src/lib/knockout'
-import { isSeriesDecided, matchGoals, seriesWins, validateSeries } from '../src/lib/series'
+import {
+  clampGoals,
+  goalLimit,
+  isSeriesDecided,
+  matchGoals,
+  seriesWins,
+  validateGame,
+  validateSeries,
+} from '../src/lib/series'
 import type { Match, Tournament } from '../src/types'
 
 let failures = 0
@@ -155,28 +163,39 @@ check('bronze played with two real teams', bronzeMatch.played && bronzeMatch.tea
   }
 }
 
-/* 6c. Best-of-three final */
+/* 6c. Goal limits and the best-of-three final */
 {
   const g = (a: number, b: number) => ({ a, b })
-  check('series: 2-0 is valid and decided', validateSeries([g(10, 8), g(10, 5)]) === null && isSeriesDecided([g(10, 8), g(10, 5)]))
-  check('series: single game can be saved mid-way', validateSeries([g(10, 8)]) === null && !isSeriesDecided([g(10, 8)]))
-  check('series: 1-1 needs a decider', !isSeriesDecided([g(10, 8), g(5, 10)]))
-  check('series: decider to 7 is valid', validateSeries([g(10, 8), g(5, 10), g(7, 5)]) === null)
-  check('series: decider not ending at 7 is rejected', validateSeries([g(10, 8), g(5, 10), g(10, 5)]) !== null)
-  check('series: decider 8:7 is rejected', validateSeries([g(10, 8), g(5, 10), g(8, 7)]) !== null)
-  check('series: no third game after 2-0', validateSeries([g(10, 8), g(10, 5), g(7, 5)]) !== null)
-  check('series: drawn game is rejected', validateSeries([g(5, 5)]) !== null)
-  const w = seriesWins([g(10, 8), g(5, 10), g(3, 7)])
+  const bronzeM = finished.find((m) => m.round === 'BRONZE')!
+  const sfM = finished.find((m) => m.round === 'SF')!
+  check('limits: bronze goes to 7, other matches to 5', goalLimit(bronzeM) === 7 && goalLimit(sfM) === 5 && goalLimit(groupMatches[0]) === 5)
+  check('limits: 5:3 valid in a 5-goal match', validateGame(g(5, 3), 5) === null)
+  check('limits: 6:4 rejected in a 5-goal match', validateGame(g(6, 4), 5) !== null)
+  check('limits: 7:5 valid in the bronze match', validateGame(g(7, 5), 7) === null)
+  check('limits: 5:3 rejected in the bronze match (must reach 7)', validateGame(g(5, 3), 7) !== null)
+  check('limits: 8:6 rejected in the bronze match', validateGame(g(8, 6), 7) !== null)
+  check('limits: input is clamped to the limit', clampGoals('9', 5) === '5' && clampGoals('12', 7) === '7' && clampGoals('3', 5) === '3' && clampGoals('', 5) === '')
+
+  check('series: 2-0 is valid and decided', validateSeries([g(5, 3), g(5, 2)]) === null && isSeriesDecided([g(5, 3), g(5, 2)]))
+  check('series: single game can be saved mid-way', validateSeries([g(5, 3)]) === null && !isSeriesDecided([g(5, 3)]))
+  check('series: games 1-2 are capped at 5', validateSeries([g(7, 3)]) !== null && validateSeries([g(5, 3), g(3, 6)]) !== null)
+  check('series: 1-1 needs a decider', !isSeriesDecided([g(5, 3), g(2, 5)]))
+  check('series: decider to 7 is valid', validateSeries([g(5, 3), g(2, 5), g(7, 5)]) === null)
+  check('series: decider not reaching 7 is rejected', validateSeries([g(5, 3), g(2, 5), g(5, 3)]) !== null)
+  check('series: decider 8:7 is rejected', validateSeries([g(5, 3), g(2, 5), g(8, 7)]) !== null)
+  check('series: no third game after 2-0', validateSeries([g(5, 3), g(5, 2), g(7, 5)]) !== null)
+  check('series: drawn game is rejected', validateSeries([g(4, 4)]) !== null)
+  const w = seriesWins([g(5, 3), g(2, 5), g(3, 7)])
   check('series: 1-2 win count', w.a === 1 && w.b === 2, w)
 
   // The final's winner is the series winner, and stale series are cleared upstream.
   const work = finished.map((m) => ({ ...m }))
   const fin = work.find((m) => m.round === 'FINAL')!
-  fin.games = [g(10, 8), g(5, 10), g(3, 7)]
+  fin.games = [g(5, 3), g(2, 5), g(3, 7)]
   fin.scoreA = 1
   fin.scoreB = 2
   check('series: final winner = series winner', winnerOf(fin) === fin.teamB)
-  check('series: goals summed over games', JSON.stringify(matchGoals(fin)) === JSON.stringify({ a: 18, b: 25 }))
+  check('series: goals summed over games', JSON.stringify(matchGoals(fin)) === JSON.stringify({ a: 10, b: 15 }))
   const sf = work.find((m) => m.round === 'SF' && m.id === fin.sourceA!.matchId)!
   ;[sf.scoreA, sf.scoreB] = [sf.scoreB, sf.scoreA] // flip the semi-final result
   syncBracket(work, [])

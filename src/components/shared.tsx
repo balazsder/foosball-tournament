@@ -4,11 +4,16 @@ import type { GameScore, ID, Match, StandingRow, Team } from '../types'
 import { cn } from '../lib/utils'
 import { winnerOf } from '../lib/standings'
 import {
+  clampGoals,
   DECIDER_GOALS,
   formatGames,
+  GAME_GOALS,
+  goalLimit,
   isSeries,
   isSeriesDecided,
+  seriesGoalLimit,
   seriesWins,
+  validateGame,
   validateSeries,
 } from '../lib/series'
 import { useStore } from '../state/store'
@@ -72,9 +77,12 @@ export function ScoreDialog({
   if (isSeries(match)) return <SeriesDialog match={match} open={open} onClose={onClose} />
   const teamA = match.teamA ? teams.get(match.teamA) : undefined
   const teamB = match.teamB ? teams.get(match.teamB) : undefined
+  const limit = goalLimit(match)
   const na = parseInt(a, 10)
   const nb = parseInt(b, 10)
-  const valid = Number.isInteger(na) && Number.isInteger(nb) && na >= 0 && nb >= 0 && na !== nb
+  const filled = Number.isInteger(na) && Number.isInteger(nb)
+  const error = filled ? validateGame({ a: na, b: nb }, limit) : null
+  const valid = filled && !error
 
   const save = () => {
     if (!valid) return
@@ -122,8 +130,9 @@ export function ScoreDialog({
           type="number"
           min={0}
           inputMode="numeric"
+          max={limit}
           value={a}
-          onChange={(e) => setA(e.target.value)}
+          onChange={(e) => setA(clampGoals(e.target.value, limit))}
           className="h-16 text-center text-3xl font-bold"
           autoFocus
         />
@@ -132,16 +141,18 @@ export function ScoreDialog({
           type="number"
           min={0}
           inputMode="numeric"
+          max={limit}
           value={b}
-          onChange={(e) => setB(e.target.value)}
+          onChange={(e) => setB(clampGoals(e.target.value, limit))}
           className="h-16 text-center text-3xl font-bold"
         />
       </div>
-      {!valid && (a !== '' || b !== '') && (
-        <p className="mt-3 text-center text-sm text-rose-500">
-          Csocsóban nincs döntetlen — a két eredmény nem lehet egyenlő.
-        </p>
-      )}
+      {error && <p className="mt-3 text-center text-sm text-rose-500">{error}</p>}
+      <p className="mt-2 text-center text-xs text-slate-500 dark:text-slate-400">
+        {limit === DECIDER_GOALS
+          ? `A bronzmérkőzés ${DECIDER_GOALS} gólig tart.`
+          : `A mérkőzés ${limit} gólig tart.`}
+      </p>
     </Modal>
   )
 }
@@ -212,8 +223,9 @@ function SeriesDialog({
         type="number"
         min={0}
         inputMode="numeric"
+        max={seriesGoalLimit(i)}
         value={rows[i].a}
-        onChange={(e) => setCell(i, 'a', e.target.value)}
+        onChange={(e) => setCell(i, 'a', clampGoals(e.target.value, seriesGoalLimit(i)))}
         className="h-12 text-center text-2xl font-bold"
         autoFocus={i === 0}
       />
@@ -224,8 +236,9 @@ function SeriesDialog({
         type="number"
         min={0}
         inputMode="numeric"
+        max={seriesGoalLimit(i)}
         value={rows[i].b}
-        onChange={(e) => setCell(i, 'b', e.target.value)}
+        onChange={(e) => setCell(i, 'b', clampGoals(e.target.value, seriesGoalLimit(i)))}
         className="h-12 text-center text-2xl font-bold"
       />
     </div>
@@ -278,7 +291,8 @@ function SeriesDialog({
       </p>
       {error && touched && <p className="mt-2 text-center text-sm text-rose-500">{error}</p>}
       <p className="mt-2 text-center text-xs text-slate-500 dark:text-slate-400">
-        Két nyert játszmáig tart. 1:1 esetén a harmadik, döntő játszma {DECIDER_GOALS} gólig megy.
+        Két nyert játszmáig tart, a játszmák {GAME_GOALS} gólig. 1:1 esetén a harmadik, döntő
+        játszma {DECIDER_GOALS} gólig megy.
         Félbehagyott párharc állása is menthető.
       </p>
     </Modal>

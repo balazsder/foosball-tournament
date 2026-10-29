@@ -4,9 +4,41 @@ import type { GameScore, Match } from '../types'
 export const SERIES_WINS_NEEDED = 2
 /** The deciding third game (at 1–1) is played to this many goals. */
 export const DECIDER_GOALS = 7
+/** Every other game is capped at this many goals. */
+export const GAME_GOALS = 5
 
 export function isSeries(m: Match): boolean {
   return m.stage === 'knockout' && m.round === 'FINAL'
+}
+
+/** Goal limit of a single-game match: the bronze match goes to 7, everything else to 5. */
+export function goalLimit(m: Match): number {
+  return m.stage === 'knockout' && m.round === 'BRONZE' ? DECIDER_GOALS : GAME_GOALS
+}
+
+/** Goal limit of game i (0-based) of the final: the third game goes to 7. */
+export function seriesGoalLimit(i: number): number {
+  return i === 2 ? DECIDER_GOALS : GAME_GOALS
+}
+
+/** Keep a typed score within 0..limit (digits only; empty stays empty). */
+export function clampGoals(value: string, limit: number): string {
+  const digits = value.replace(/\D/g, '')
+  if (digits === '') return ''
+  return String(Math.min(parseInt(digits, 10), limit))
+}
+
+/**
+ * Validate one game's score against its goal limit. A 7-goal game must be won
+ * with exactly 7 goals; a 5-goal game may not exceed 5 on either side.
+ * Returns a Hungarian error message, or null when valid.
+ */
+export function validateGame(g: GameScore, limit: number): string | null {
+  if (g.a === g.b) return 'Csocsóban nincs döntetlen — a két eredmény nem lehet egyenlő.'
+  if (Math.max(g.a, g.b) > limit) return `Legfeljebb ${limit} gól írható be.`
+  if (limit === DECIDER_GOALS && Math.max(g.a, g.b) !== DECIDER_GOALS)
+    return `Ez a játszma ${DECIDER_GOALS} gólig tart — a győztesnek pontosan ${DECIDER_GOALS} gólja legyen.`
+  return null
 }
 
 /** Games won by each side. */
@@ -29,12 +61,10 @@ export function isSeriesDecided(games: GameScore[]): boolean {
 export function validateSeries(games: GameScore[]): string | null {
   if (games.length === 0) return 'Legalább egy játszma eredményét add meg.'
   for (let i = 0; i < games.length; i++) {
-    const g = games[i]
-    if (g.a === g.b) return `${i + 1}. játszma: csocsóban nincs döntetlen.`
     if (i > 0 && isSeriesDecided(games.slice(0, i)))
       return 'A párharc már eldőlt — további játszma nem kell.'
-    if (i === 2 && (Math.max(g.a, g.b) !== DECIDER_GOALS || Math.min(g.a, g.b) >= DECIDER_GOALS))
-      return `A döntő játszma ${DECIDER_GOALS} gólig tart — a győztesnek pontosan ${DECIDER_GOALS} gólja legyen.`
+    const err = validateGame(games[i], seriesGoalLimit(i))
+    if (err) return `${i + 1}. játszma: ${err}`
   }
   return null
 }
@@ -51,7 +81,7 @@ export function matchGoals(m: Match): { a: number; b: number } | null {
   return { a: m.scoreA, b: m.scoreB }
 }
 
-/** "10:8, 6:10, 7:5" */
+/** "5:3, 2:5, 7:4" */
 export function formatGames(games: GameScore[]): string {
   return games.map((g) => `${g.a}:${g.b}`).join(', ')
 }

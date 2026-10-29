@@ -4,7 +4,7 @@ import type { ID, KnockoutRound, Match } from '../types'
 import { useStore } from '../state/store'
 import { useDerived } from '../state/selectors'
 import { ROUND_TITLES } from '../lib/knockout'
-import { formatGames, isSeries, seriesStatus } from '../lib/series'
+import { DECIDER_GOALS, formatGames, isSeries, seriesStatus } from '../lib/series'
 import { winnerOf } from '../lib/standings'
 import { cn } from '../lib/utils'
 import { Button, Card } from '../components/ui/primitives'
@@ -179,6 +179,11 @@ function BracketCard({ match, onScore }: { match: Match; onScore: (id: ID) => vo
       {match.isBye && (
         <div className="bg-slate-50 px-3 py-1 text-center text-[11px] text-slate-400 dark:bg-slate-950">
           walkover — automatikus továbbjutás
+        </div>
+      )}
+      {match.round === 'BRONZE' && (
+        <div className="bg-slate-50 px-3 py-1 text-center text-[11px] text-slate-500 dark:bg-slate-950 dark:text-slate-400">
+          {DECIDER_GOALS} gólig
         </div>
       )}
       {isSeries(match) && (
