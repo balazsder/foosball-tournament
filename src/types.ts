@@ -22,6 +22,11 @@ export interface MatchSource {
   type: 'winner' | 'loser'
 }
 
+export interface GameScore {
+  a: number
+  b: number
+}
+
 export interface Match {
   id: ID
   stage: Stage
@@ -41,8 +46,11 @@ export interface Match {
   /** where the team in this slot comes from (knockout wiring) */
   sourceA?: MatchSource
   sourceB?: MatchSource
+  /** For a best-of-three series (the final) these hold the games won, e.g. 2:1. */
   scoreA: number | null
   scoreB: number | null
+  /** per-game scores of a series (the final) */
+  games?: GameScore[]
   played: boolean
   /** auto-resolved walkover (e.g. a bye in the bracket) */
   isBye?: boolean

@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import type { Group, ID, Match, StandingRow, Team, Tournament } from '../types'
 import { computeGroupStandings, isGroupStageComplete } from '../lib/standings'
 import { getQualifiers, isPlayable, type Qualifier } from '../lib/knockout'
+import { matchGoals } from '../lib/series'
 import { useStore } from './store'
 
 export function teamMap(teams: Team[]): Map<ID, Team> {
@@ -94,20 +95,22 @@ export function computeLeaders(t: Tournament) {
 
   for (const m of t.matches) {
     if (!m.played || m.isBye) continue
-    if (m.teamA === null || m.teamB === null || m.scoreA === null || m.scoreB === null)
+    // a best-of-three final counts as one win; its goals are summed over the games
+    const goals = matchGoals(m)
+    if (m.teamA === null || m.teamB === null || m.scoreA === null || m.scoreB === null || !goals)
       continue
     const a = tally.get(m.teamA)
     const b = tally.get(m.teamB)
     if (a) {
-      a.gf += m.scoreA
-      a.gd += m.scoreA - m.scoreB
-      a.goals += m.scoreA
+      a.gf += goals.a
+      a.gd += goals.a - goals.b
+      a.goals += goals.a
       if (m.scoreA > m.scoreB) a.wins++
     }
     if (b) {
-      b.gf += m.scoreB
-      b.gd += m.scoreB - m.scoreA
-      b.goals += m.scoreB
+      b.gf += goals.b
+      b.gd += goals.b - goals.a
+      b.goals += goals.b
       if (m.scoreB > m.scoreA) b.wins++
     }
   }

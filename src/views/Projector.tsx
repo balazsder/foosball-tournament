@@ -3,6 +3,7 @@ import { Maximize, Minimize, Megaphone, ArrowRight, Trophy, Award } from 'lucide
 import { useStore } from '../state/store'
 import { computeLeaders, useDerived } from '../state/selectors'
 import { ROUND_TITLES } from '../lib/knockout'
+import { isSeries, seriesStatus } from '../lib/series'
 import type { Match } from '../types'
 import { FoosballBall } from '../components/brand'
 import { StandingsTable, useTeamName } from '../components/shared'
@@ -33,7 +34,13 @@ export function Projector() {
   }
 
   const stageLabel = (m?: Match) =>
-    !m ? '' : m.stage === 'group' ? `${d.groups.get(m.groupId!)?.name} csoport` : ROUND_TITLES[m.round!]
+    !m
+      ? ''
+      : m.stage === 'group'
+        ? `${d.groups.get(m.groupId!)?.name} csoport`
+        : isSeries(m)
+          ? `${ROUND_TITLES[m.round!]} · ${seriesStatus(m)}`
+          : ROUND_TITLES[m.round!]
 
   const topWins = leaders.mostWins[0]
   const topGd = leaders.bestGd[0]

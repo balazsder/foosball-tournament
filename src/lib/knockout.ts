@@ -324,10 +324,13 @@ export function syncBracket(knockoutMatches: Match[], _teams: Team[]): Match[] {
 
     // If a fed slot's team changed and a result had already been entered for a
     // real (non-bye) match, that result is now stale -> clear it.
-    if (!seeded && m.played && !m.isBye && (newA !== m.teamA || newB !== m.teamB)) {
+    // A series in progress (games saved, not yet decided) is stale too.
+    const hasResult = m.played || !!m.games?.length
+    if (!seeded && hasResult && !m.isBye && (newA !== m.teamA || newB !== m.teamB)) {
       m.played = false
       m.scoreA = null
       m.scoreB = null
+      m.games = undefined
     }
 
     m.teamA = newA

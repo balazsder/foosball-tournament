@@ -4,6 +4,7 @@ import * as XLSX from 'xlsx'
 import type { Match, StandingRow, Tournament } from '../types'
 import { derive } from '../state/selectors'
 import { ROUND_TITLES } from './knockout'
+import { formatGames, matchGoals } from './series'
 import { winnerOf } from './standings'
 
 const BRAND: [number, number, number] = [0x79, 0x23, 0x3a]
@@ -158,7 +159,9 @@ export function exportResultsPDF(t: Tournament) {
       body: ko.map((m) => [
         pdf(ROUND_TITLES[m.round!]),
         pdf(`${teamLabel(t, m.teamA)} – ${teamLabel(t, m.teamB)}`),
-        m.played && m.scoreA !== null ? `${m.scoreA} : ${m.scoreB}` : '—',
+        m.played && m.scoreA !== null
+          ? `${m.scoreA} : ${m.scoreB}${m.games?.length ? ` (${formatGames(m.games)})` : ''}`
+          : '—',
       ]),
       theme: 'striped',
       headStyles: { fillColor: PITCH },
@@ -234,22 +237,26 @@ export function exportExcel(t: Tournament) {
   // Matches sheet
   const matchRows = [...t.matches]
     .sort((a, b) => a.order - b.order)
-    .map((m) => [
-      m.order,
-      m.stage === 'group'
-        ? `${groupNameOf(t, m)} csoport${m.leg === 2 ? ' (visszavágó)' : ''}`
-        : ROUND_TITLES[m.round!],
-      teamLabel(t, m.teamA),
-      teamLabel(t, m.teamB),
-      m.played && m.scoreA !== null ? m.scoreA : '',
-      m.played && m.scoreB !== null ? m.scoreB : '',
-      m.played ? teamLabel(t, winnerOf(m)) : '',
-    ])
+    .map((m) => {
+      const goals = m.played ? matchGoals(m) : null
+      return [
+        m.order,
+        m.stage === 'group'
+          ? `${groupNameOf(t, m)} csoport${m.leg === 2 ? ' (visszavágó)' : ''}`
+          : ROUND_TITLES[m.round!],
+        teamLabel(t, m.teamA),
+        teamLabel(t, m.teamB),
+        goals ? goals.a : '',
+        goals ? goals.b : '',
+        m.games?.length ? formatGames(m.games) : '',
+        m.played ? teamLabel(t, winnerOf(m)) : '',
+      ]
+    })
   const wsM = XLSX.utils.aoa_to_sheet([
-    ['#', 'Szakasz', 'Csapat A', 'Csapat B', 'Gól A', 'Gól B', 'Győztes'],
+    ['#', 'Szakasz', 'Csapat A', 'Csapat B', 'Gól A', 'Gól B', 'Játszmák', 'Győztes'],
     ...matchRows,
   ])
-  wsM['!cols'] = [{ wch: 5 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 6 }, { wch: 6 }, { wch: 22 }]
+  wsM['!cols'] = [{ wch: 5 }, { wch: 22 }, { wch: 22 }, { wch: 22 }, { wch: 6 }, { wch: 6 }, { wch: 16 }, { wch: 22 }]
   XLSX.utils.book_append_sheet(wb, wsM, 'Mérkőzések')
 
   // Teams sheet

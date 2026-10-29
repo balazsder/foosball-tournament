@@ -6,10 +6,11 @@ import {
   useReducer,
   type ReactNode,
 } from 'react'
-import type { ID, Match, Tournament } from '../types'
+import type { GameScore, ID, Match, Tournament } from '../types'
 import { createTournament, groupName } from '../lib/factory'
 import { generateGroupSchedule } from '../lib/scheduling'
 import { generateKnockout, syncBracket } from '../lib/knockout'
+import { isSeriesDecided, seriesWins } from '../lib/series'
 import { loadTournament, saveTournament } from '../lib/storage'
 import { uid } from '../lib/utils'
 
@@ -28,6 +29,7 @@ export type Action =
   | { type: 'RENAME_GROUP'; id: ID; name: string }
   | { type: 'REGENERATE_SCHEDULE'; seed?: number }
   | { type: 'SET_RESULT'; matchId: ID; scoreA: number; scoreB: number }
+  | { type: 'SET_SERIES'; matchId: ID; games: GameScore[] }
   | { type: 'CLEAR_RESULT'; matchId: ID }
   | { type: 'SET_CURRENT'; matchId: ID | null }
   | { type: 'GENERATE_KNOCKOUT' }
@@ -49,9 +51,10 @@ function applyResult(
   scoreA: number | null,
   scoreB: number | null,
   played: boolean,
+  games?: GameScore[],
 ): Tournament {
   const matches: Match[] = t.matches.map((m) =>
-    m.id === matchId ? { ...m, scoreA, scoreB, played } : { ...m },
+    m.id === matchId ? { ...m, scoreA, scoreB, played, games } : { ...m },
   )
   const target = matches.find((m) => m.id === matchId)
   if (target?.stage === 'knockout') {
@@ -202,6 +205,13 @@ function reducer(state: Tournament, action: Action): Tournament {
 
     case 'SET_RESULT':
       return touch(applyResult(state, action.matchId, action.scoreA, action.scoreB, true))
+
+    case 'SET_SERIES': {
+      const w = seriesWins(action.games)
+      return touch(
+        applyResult(state, action.matchId, w.a, w.b, isSeriesDecided(action.games), action.games),
+      )
+    }
 
     case 'CLEAR_RESULT':
       return touch(applyResult(state, action.matchId, null, null, false))
